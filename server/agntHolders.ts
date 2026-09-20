@@ -1,6 +1,5 @@
-import { getAddress, type Address } from "viem";
-
-const HOLDERS_BASE = (process.env.AGNT_API_BASE ?? "https://agnt.social/api/token").replace(/\/$/, "");
+import { type Address } from "viem";
+import { fetchTokenHoldersFromChain, type ChainHoldersOptions, type HoldersSnapshot } from "./chainHolders.js";
 
 export type AgntHolderRow = {
   rank: number;
@@ -12,39 +11,20 @@ export type AgntHolderRow = {
   agnt?: { name?: string; handle?: string; pfp?: string };
 };
 
-export type AgntHoldersResponse = {
-  status: string;
-  source?: string;
-  count?: number;
+export type AgntHoldersResponse = HoldersSnapshot & {
   distribution?: {
     top10?: number;
     top50?: number;
     agnt?: number;
   };
-  holders: AgntHolderRow[];
 };
 
-export function holdersUrl(token: Address) {
-  return `${HOLDERS_BASE}/${token}/holders?chain=robinhood`;
-}
-
-export async function fetchTokenHolders(token: Address): Promise<AgntHoldersResponse> {
-  const res = await fetch(holdersUrl(token), {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`agnt holders HTTP ${res.status}: ${raw.slice(0, 120)}`);
-  }
-  if (raw.trimStart().startsWith("<")) {
-    throw new Error("agnt holders 返回 HTML 而非 JSON");
-  }
-  const json = JSON.parse(raw) as AgntHoldersResponse & { reason?: string };
-  if (json.status !== "ok" || !Array.isArray(json.holders)) {
-    throw new Error(json.reason ?? "agnt holders 数据无效");
-  }
-  return json;
+/** 通过链上 RPC：Transfer 日志 + balanceOf */
+export async function fetchTokenHolders(
+  token: Address,
+  options: ChainHoldersOptions = {},
+): Promise<AgntHoldersResponse> {
+  return fetchTokenHoldersFromChain(token, options);
 }
 
 export function findHolderPct(holders: AgntHolderRow[], address: string): number | null {

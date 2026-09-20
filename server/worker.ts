@@ -1,6 +1,6 @@
 import { formatEther, type Address, type Hash } from "viem";
 import { getPublicClient, getWalletAddress, resetClients } from "./clients.js";
-import { isLaunchTarget, parseLaunchFromReceipt } from "./create-detect.js";
+import { isLaunchTarget, parseLaunchFromReceipt, type LaunchEvent } from "./create-detect.js";
 import { fetchTokenSummary } from "./agntApi.js";
 import { loadSettings, saveSettings, validateSettingsForRun, type SnipeSettings } from "./settings.js";
 import { quoteAndExecuteAgntBuy } from "./agntSwap.js";
@@ -37,7 +37,7 @@ async function refreshWallet() {
 
 async function waitMarketCapAndBuy(
   settings: SnipeSettings,
-  launch: { token: Address; creator: Address; txHash: Hash; poolKey: import("./create-detect.js").PoolKey | null },
+  launch: LaunchEvent,
   meta: Awaited<ReturnType<typeof readTokenMeta>>,
   signal: AbortSignal,
 ) {
@@ -85,7 +85,7 @@ async function waitMarketCapAndBuy(
     let holderReason = "";
     if (fresh.holderFilterEnabled) {
       try {
-        const h = await checkHolderFilter(launch.token, fresh);
+        const h = await checkHolderFilter(launch.token, fresh, { fromBlock: launch.blockNumber });
         holderOk = h.ok;
         holderReason = h.reason;
       } catch (e) {

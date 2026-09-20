@@ -339,9 +339,7 @@ export function App() {
 
         <h3>持有人条件（可选）</h3>
         <p className="sub" style={{ marginTop: 0 }}>
-          市值达标后，再查{" "}
-          <a href="https://agnt.social" target="_blank" rel="noreferrer">agnt holders</a>
-          ；监控钱包持仓 % 满足后才买入。
+          市值达标后，通过链上 RPC（Transfer 日志 + balanceOf）计算监控钱包持仓 %，满足后再买入。
         </p>
         <label className="check">
           <input
@@ -383,7 +381,7 @@ export function App() {
             checked={holderRequireListed}
             onChange={(e) => setHolderRequireListed(e.target.checked)}
           />
-          监控地址必须出现在 holders 列表
+          监控地址链上持仓必须 &gt; 0
         </label>
 
         <h3>RPC</h3>

@@ -22,7 +22,7 @@ export type SnipeSettings = {
   buyMaxRetries: number;
   rpcWsUrl: string;
   rpcHttpUrl: string;
-  /** 可选：买入前检查 agnt holders */
+  /** 可选：买入前检查链上持有人 */
   holderFilterEnabled: boolean;
   /** 监控的持有人钱包（与发币监控地址无关） */
   holderWatchAddresses: string[];

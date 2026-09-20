@@ -114,10 +114,13 @@ const server = createServer(async (req, res) => {
       const token = url.searchParams.get("token") ?? "";
       if (!token.trim()) throw new Error("缺少 ?token=0x...");
       const addr = getAddress(token.trim());
-      const holders = await fetchTokenHolders(addr);
+      const fromBlockRaw = url.searchParams.get("fromBlock");
+      const fromBlock = fromBlockRaw ? BigInt(fromBlockRaw) : undefined;
+      resetClients();
+      const holders = await fetchTokenHolders(addr, { fromBlock });
       const settings = loadSettings();
       const check = settings.holderFilterEnabled
-        ? await checkHolderFilter(addr, settings)
+        ? await checkHolderFilter(addr, settings, { fromBlock })
         : { ok: true, reason: "持有人条件未启用" };
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ holders, check }));
