@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchApiJson } from "./api";
 
 type SnipeSettings = {
@@ -84,31 +84,36 @@ export function App() {
   const [testBusy, setTestBusy] = useState("");
   const [testResult, setTestResult] = useState("");
 
+  const formHydrated = useRef(false);
+
+  const applyFormFromSettings = useCallback((s: SnipeSettings) => {
+    setWatchText(s.watchAddresses.join("\n"));
+    setNameFilter(s.nameFilter);
+    setMinMcap(String(s.minMarketCapUsd));
+    setEthUsd(String(s.ethUsdPrice));
+    setBuyEth(s.buyEthAmount);
+    setSlippagePct(String(s.slippageBps / 100));
+    setPollSec(String(s.pollIntervalSec));
+    setEnabled(s.enabled);
+    setStopAfterBuy(s.stopAfterBuy);
+    setRpcWs(s.rpcWsUrl);
+    setRpcHttp(s.rpcHttpUrl);
+    setHolderEnabled(s.holderFilterEnabled ?? false);
+    setHolderWatchText((s.holderWatchAddresses ?? []).join("\n"));
+    setHolderMode(s.holderMode === "all" ? "all" : "any");
+    setHolderMinPct(String(s.holderMinPct ?? 0));
+    setHolderMaxTop10(String(s.holderMaxTop10Pct ?? 0));
+    setHolderRequireListed(!!s.holderRequireListed);
+  }, []);
+
   const refresh = useCallback(async () => {
     const data = await fetchApiJson<Status>("/api/status");
     setStatus(data);
-    if (!watchText && data.settings.watchAddresses.length) {
-      setWatchText(data.settings.watchAddresses.join("\n"));
+    if (!formHydrated.current) {
+      applyFormFromSettings(data.settings);
+      formHydrated.current = true;
     }
-    setNameFilter(data.settings.nameFilter);
-    setMinMcap(String(data.settings.minMarketCapUsd));
-    setEthUsd(String(data.settings.ethUsdPrice));
-    setBuyEth(data.settings.buyEthAmount);
-    setSlippagePct(String(data.settings.slippageBps / 100));
-    setPollSec(String(data.settings.pollIntervalSec));
-    setEnabled(data.settings.enabled);
-    setStopAfterBuy(data.settings.stopAfterBuy);
-    setRpcWs(data.settings.rpcWsUrl);
-    setRpcHttp(data.settings.rpcHttpUrl);
-    setHolderEnabled(data.settings.holderFilterEnabled ?? false);
-    if (!holderWatchText && data.settings.holderWatchAddresses?.length) {
-      setHolderWatchText(data.settings.holderWatchAddresses.join("\n"));
-    }
-    setHolderMode(data.settings.holderMode === "all" ? "all" : "any");
-    setHolderMinPct(String(data.settings.holderMinPct ?? 0));
-    setHolderMaxTop10(String(data.settings.holderMaxTop10Pct ?? 0));
-    setHolderRequireListed(!!data.settings.holderRequireListed);
-  }, [watchText, holderWatchText]);
+  }, [applyFormFromSettings]);
 
   useEffect(() => {
     void refresh();
@@ -212,7 +217,7 @@ export function App() {
         .split(/[\n,;]+/)
         .map((s) => s.trim())
         .filter(Boolean);
-      await fetchApiJson("/api/config", {
+      const saved = await fetchApiJson<{ ok: boolean; settings: SnipeSettings }>("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -221,7 +226,7 @@ export function App() {
           nameFilter,
           minMarketCapUsd: Number(minMcap),
           ethUsdPrice: Number(ethUsd),
-          buyEthAmount: buyEth,
+          buyEthAmount: buyEth.trim(),
           slippageBps: Math.round(Number(slippagePct) * 100),
           pollIntervalSec: Number(pollSec),
           stopAfterBuy,
@@ -235,7 +240,8 @@ export function App() {
           holderRequireListed,
         }),
       });
-      setMsg("已保存。后台 Worker 持续运行，关闭本页不影响。");
+      applyFormFromSettings(saved.settings);
+      setMsg(`已保存（监控买入 ${saved.settings.buyEthAmount} ETH）。Worker 每次买入前会重新读 settings.json。`);
       await refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -271,6 +277,10 @@ export function App() {
         <div className="row">
           <span>区块</span>
           <span>{status?.lastBlock ?? "—"}</span>
+        </div>
+        <div className="row">
+          <span>已保存买入量</span>
+          <strong>{status?.settings.buyEthAmount ?? "—"} ETH</strong>
         </div>
         <div className="row">
           <span>钱包</span>

@@ -115,7 +115,7 @@ async function waitMarketCapAndBuy(
     if (mcapOk && holderOk) {
       patchState({
         phase: "buying",
-        lastMessage: `市值+持有人达标，买入 ${displaySymbol}${holderReason ? ` · ${holderReason}` : ""}`,
+        lastMessage: `市值+持有人达标，买入 ${displaySymbol} · ${fresh.buyEthAmount} ETH${holderReason ? ` · ${holderReason}` : ""}`,
       });
 
       let lastErr = "";
@@ -129,7 +129,7 @@ async function waitMarketCapAndBuy(
           });
           if (buy.mode !== "swap" || !buy.txHash) throw new Error("quote_v2 未返回成交哈希");
           const buyHash = buy.txHash;
-          pushLog("ok", `买入成功 · ${displaySymbol} · ${buyHash}`);
+          pushLog("ok", `买入成功 · ${displaySymbol} · ${fresh.buyEthAmount} ETH · ${buyHash}`);
           pushHit({
             id: launch.txHash,
             at: new Date().toISOString(),
