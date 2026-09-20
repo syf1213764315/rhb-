@@ -278,7 +278,7 @@ export async function runWorker(signal: AbortSignal) {
 
       if (lastBlock === null) {
         lastBlock = latest;
-        pushLog("info", `从区块 ${latest} 开始监控 · RPC ${settings.rpcHttpUrl}`);
+        pushLog("info", `从区块 ${latest} 开始监控 · HTTP RPC ${settings.rpcHttpUrl}`);
         patchState({ lastBlock: Number(latest), lastMessage: `监控 ${watchSet.size} 个地址` });
       } else if (latest > lastBlock) {
         const from = lastBlock + 1n;
@@ -299,8 +299,14 @@ export async function runWorker(signal: AbortSignal) {
     } catch (e) {
       if (signal.aborted) throw e;
       const msg = e instanceof Error ? e.message : String(e);
-      pushLog("err", `轮询异常 · ${msg}`);
-      patchState({ phase: "error", lastMessage: msg });
+      const detail =
+        e && typeof e === "object" && "shortMessage" in e
+          ? String((e as { shortMessage?: string }).shortMessage)
+          : "";
+      const cause =
+        e instanceof Error && e.cause instanceof Error ? ` · ${e.cause.message}` : "";
+      pushLog("err", `轮询异常 · ${detail || msg}${cause}`);
+      patchState({ phase: "error", lastMessage: detail || msg });
     }
 
     await sleep(loadSettings().pollIntervalSec * 1000, signal);

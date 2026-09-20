@@ -2,8 +2,8 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  fallback,
   http,
-  webSocket,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -25,13 +25,20 @@ function rpcCacheKey() {
 
 function buildPublicTransport() {
   const s = loadSettings();
-  const httpUrl = s.rpcHttpUrl || "https://robinhood.api.pocket.network";
-  const wsUrl = s.rpcWsUrl || "wss://robinhood.api.pocket.network";
-  try {
-    return webSocket(wsUrl);
-  } catch {
-    return http(httpUrl);
-  }
+  const httpUrl = (s.rpcHttpUrl || "https://robinhood.api.pocket.network").trim();
+  /** Node 扫块用 HTTP；Pocket WSS 在 viem 下常触发 Blob/JSON 解析错误 */
+  return fallback([
+    http(httpUrl, {
+      timeout: 45_000,
+      retryCount: 3,
+      retryDelay: 1500,
+    }),
+  ]);
+}
+
+function buildWalletTransport() {
+  const httpUrl = (loadSettings().rpcHttpUrl || "https://robinhood.api.pocket.network").trim();
+  return http(httpUrl, { timeout: 60_000, retryCount: 2, retryDelay: 1500 });
 }
 
 export function resetClients() {
@@ -58,7 +65,7 @@ export function getWalletClient(): WalletClient {
   if (!walletClient) {
     walletClient = createWalletClient({
       chain,
-      transport: http(loadSettings().rpcHttpUrl || "https://robinhood.api.pocket.network"),
+      transport: buildWalletTransport(),
       account: privateKeyToAccount(pk),
     });
   }
