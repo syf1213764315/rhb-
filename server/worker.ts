@@ -1,6 +1,6 @@
 import { formatEther, type Address, type Hash } from "viem";
 import { getPublicClient, getWalletAddress, resetClients } from "./clients.js";
-import { isLaunchTarget, parseLaunchFromReceipt, type LaunchEvent } from "./create-detect.js";
+import { parseLaunchFromReceipt, type LaunchEvent } from "./create-detect.js";
 import { fetchTokenSummary } from "./agntApi.js";
 import { loadSettings, saveSettings, validateSettingsForRun, type SnipeSettings } from "./settings.js";
 import { quoteAndExecuteAgntBuy } from "./agntSwap.js";
@@ -9,6 +9,7 @@ import { patchState, pushHit, pushLog } from "./state.js";
 import { privateKeyConfigured } from "./secrets.js";
 import { matchesTokenNameFilter } from "./tokenContext.js";
 import { checkHolderFilter } from "./holderFilter.js";
+import { scanLaunchesInBlockRange } from "./scanLaunches.js";
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -278,24 +279,18 @@ async function handleLaunchTx(
   }
 }
 
-function scanBlockTransactions(
-  txs: readonly { from: Address; to: Address | null; hash: Hash }[],
-  blockNumber: bigint,
-  watchSet: Set<string>,
+function dispatchLaunchHits(
+  hits: { txHash: Hash; creator: Address; blockNumber: bigint }[],
   signal: AbortSignal,
 ): number {
-  let candidates = 0;
-  for (const tx of txs) {
-    if (!watchSet.has(tx.from.toLowerCase())) continue;
-    if (!isLaunchTarget(tx.to)) continue;
-    candidates++;
+  for (const h of hits) {
     pushLog(
       "info",
-      `区块 ${blockNumber} · 监控地址发币 tx ${tx.hash.slice(0, 12)}… → ${tx.to?.slice(0, 10)}…`,
+      `区块 ${h.blockNumber} · 监控地址发币 tx ${h.txHash.slice(0, 12)}…（事件扫描）`,
     );
-    void handleLaunchTx(tx.hash, tx.from, blockNumber, signal);
+    void handleLaunchTx(h.txHash, h.creator, h.blockNumber, signal);
   }
-  return candidates;
+  return hits.length;
 }
 
 export async function runWorker(signal: AbortSignal) {
@@ -351,25 +346,46 @@ export async function runWorker(signal: AbortSignal) {
           `轮询 · 链头 ${latest} · 游标 ${latest} · 已对齐链头（下一周期扫描新区块）`,
         );
       } else if (latest > lastBlock) {
-        const from = lastBlock + 1n;
-        const blockCount = Number(latest - from + 1n);
-        pushLog("info", `轮询 · 链头 ${latest} · 扫描区块 ${from}–${latest}（${blockCount} 块）`);
-        let launchCandidates = 0;
-        for (let b = from; b <= latest; b++) {
-          const block = await client.getBlock({ blockNumber: b, includeTransactions: true });
-          const txs = block.transactions.filter((t) => typeof t !== "string") as {
-            from: Address;
-            to: Address | null;
-            hash: Hash;
-          }[];
-          launchCandidates += scanBlockTransactions(txs, b, watchSet, signal);
+        let cursor = lastBlock;
+        let totalCreateLogs = 0;
+        let totalCandidates = 0;
+        let chainTip = latest;
+
+        while (cursor < chainTip && !signal.aborted) {
+          const from = cursor + 1n;
+          let to = chainTip;
+          const span = to - from + 1n;
+          pushLog(
+            "info",
+            `轮询 · 链头 ${chainTip} · 事件扫描区块 ${from}–${to}（${span} 块）`,
+          );
+
+          const { createLogCount, hits } = await scanLaunchesInBlockRange(
+            client,
+            from,
+            to,
+            watchSet,
+          );
+          totalCreateLogs += createLogCount;
+          totalCandidates += dispatchLaunchHits(hits, signal);
+
+          cursor = to;
+          lastBlock = cursor;
+          patchState({ lastBlock: Number(lastBlock), phase: "polling" });
+
+          if (cursor < chainTip) {
+            chainTip = await client.getBlockNumber();
+            pushLog(
+              "info",
+              `追块中 · 游标 ${cursor} · 链头 ${chainTip} · 本批 Create 日志 ${createLogCount} · 候选 ${hits.length}`,
+            );
+          } else {
+            pushLog(
+              "info",
+              `扫描完成 · 游标 → ${cursor} · Create 日志 ${totalCreateLogs} · 发币候选 ${totalCandidates} 笔`,
+            );
+          }
         }
-        pushLog(
-          "info",
-          `扫描完成 · 游标 → ${latest} · 发币候选 ${launchCandidates} 笔`,
-        );
-        lastBlock = latest;
-        patchState({ lastBlock: Number(latest), phase: "polling" });
       } else {
         pushLog("info", `轮询 · 链头 ${latest} · 游标 ${lastBlock} · 无新区块`);
         patchState({ phase: "polling", lastMessage: `等待新区块… · 链头 ${latest}` });
