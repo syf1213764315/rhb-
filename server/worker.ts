@@ -360,12 +360,18 @@ export async function runWorker(signal: AbortSignal) {
             `轮询 · 链头 ${chainTip} · 事件扫描区块 ${from}–${to}（${span} 块）`,
           );
 
-          const { createLogCount, hits } = await scanLaunchesInBlockRange(
+          const { createLogCount, hits, usedBlockFallback } = await scanLaunchesInBlockRange(
             client,
             from,
             to,
             watchSet,
           );
+          if (usedBlockFallback) {
+            pushLog(
+              "warn",
+              `RPC 无历史 logs · 区块 ${from}–${to} 已改用逐块交易扫描（${hits.length} 笔候选）`,
+            );
+          }
           totalCreateLogs += createLogCount;
           totalCandidates += dispatchLaunchHits(hits, signal);
 
