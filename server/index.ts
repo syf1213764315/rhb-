@@ -5,21 +5,26 @@ import { loadDotEnv } from "./loadEnv.js";
 import { ROOT } from "./paths.js";
 import { loadSettings, saveSettings, type SnipeSettings } from "./settings.js";
 import { getState, patchState } from "./state.js";
-import { runWorker } from "./worker.js";
-import { privateKeyConfigured, getPrivateKey } from "./secrets.js";
 import { getWalletAddress, getPublicClient, resetClients } from "./clients.js";
+import { privateKeyConfigured, getPrivateKey } from "./secrets.js";
 import { formatEther } from "viem";
 import { getAddress } from "viem";
 import { fetchTokenHolders } from "./agntHolders.js";
 import { checkHolderFilter } from "./holderFilter.js";
 import { lookupToken, runV4Test, type V4TestBody } from "./v4Test.js";
+import {
+  ensureWorkerStarted,
+  isWorkerThreadActive,
+  pauseMonitoring,
+  restartMonitoring,
+  stopMonitoring,
+} from "./workerRuntime.js";
 
 loadDotEnv();
 
 const PORT = Number(process.env.PORT ?? 8795);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const distDir = resolve(ROOT, "dist");
-const workerAbort = new AbortController();
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -74,7 +79,8 @@ const server = createServer(async (req, res) => {
           privateKeyConfigured: privateKeyConfigured(),
           walletAddress: wallet,
           ethBalance,
-          workerRunning: !workerAbort.signal.aborted,
+          workerRunning: isWorkerThreadActive(),
+          monitoringEnabled: settings.enabled,
         }),
       );
       return;
@@ -93,6 +99,27 @@ const server = createServer(async (req, res) => {
       patchState({ lastMessage: "配置已保存，Worker 自动读取" });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, settings: saved }));
+      return;
+    }
+
+    if (pathname === "/api/worker/pause" && req.method === "POST") {
+      const settings = pauseMonitoring();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, action: "pause", settings }));
+      return;
+    }
+
+    if (pathname === "/api/worker/stop" && req.method === "POST") {
+      const settings = stopMonitoring();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, action: "stop", settings }));
+      return;
+    }
+
+    if (pathname === "/api/worker/restart" && req.method === "POST") {
+      const settings = restartMonitoring();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, action: "restart", settings }));
       return;
     }
 
@@ -173,20 +200,12 @@ server.listen(PORT, HOST, () => {
   if (!getPrivateKey()) {
     console.warn("  提示: 未配置 PRIVATE_KEY / config.json privateKey，将无法自动买入");
   }
-  patchState({ running: true, lastMessage: "Worker 启动中…" });
-  runWorker(workerAbort.signal).catch((error) => {
-    if (workerAbort.signal.aborted) return;
-    patchState({
-      running: false,
-      phase: "error",
-      lastMessage: error instanceof Error ? error.message : String(error),
-    });
-  });
+  ensureWorkerStarted();
 });
 
 function shutdown() {
-  workerAbort.abort();
-  patchState({ running: false, lastMessage: "服务已停止" });
+  stopMonitoring();
+  patchState({ running: false, lastMessage: "服务进程退出中" });
   server.close(() => process.exit(0));
 }
 

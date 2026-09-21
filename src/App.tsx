@@ -31,6 +31,7 @@ type Status = {
   ethBalance: string | null;
   privateKeyConfigured: boolean;
   workerRunning: boolean;
+  monitoringEnabled?: boolean;
   settings: SnipeSettings;
   hits: {
     token: string;
@@ -75,6 +76,7 @@ export function App() {
   const [holderRequireListed, setHolderRequireListed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [workerBusy, setWorkerBusy] = useState("");
 
   const [testToken, setTestToken] = useState("");
   const [testEth, setTestEth] = useState("0.001");
@@ -205,6 +207,25 @@ export function App() {
     }
   }
 
+  async function workerControl(action: "pause" | "stop" | "restart") {
+    setWorkerBusy(action);
+    setMsg("");
+    try {
+      const data = await fetchApiJson<{ ok: boolean; settings: SnipeSettings }>(`/api/worker/${action}`, {
+        method: "POST",
+      });
+      applyFormFromSettings(data.settings);
+      setEnabled(data.settings.enabled);
+      const labels = { pause: "已暂停监控", stop: "已停止监控", restart: "已重启监控" };
+      setMsg(labels[action]);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWorkerBusy("");
+    }
+  }
+
   async function save() {
     setSaving(true);
     setMsg("");
@@ -289,6 +310,26 @@ export function App() {
             {status?.ethBalance ? ` · ${status.ethBalance} ETH` : ""}
           </span>
         </div>
+        <div className="row">
+          <span>监控开关</span>
+          <strong className={status?.monitoringEnabled ?? status?.settings.enabled ? "ok" : "warn"}>
+            {status?.monitoringEnabled ?? status?.settings.enabled ? "已启用" : "已关闭"}
+          </strong>
+        </div>
+        <div className="worker-actions">
+          <button type="button" disabled={!!workerBusy} onClick={() => void workerControl("pause")}>
+            {workerBusy === "pause" ? "…" : "暂停监控"}
+          </button>
+          <button type="button" disabled={!!workerBusy} onClick={() => void workerControl("stop")}>
+            {workerBusy === "stop" ? "…" : "停止监控"}
+          </button>
+          <button type="button" className="primary" disabled={!!workerBusy} onClick={() => void workerControl("restart")}>
+            {workerBusy === "restart" ? "…" : "重启监控"}
+          </button>
+        </div>
+        <p className="sub worker-hint">
+          暂停/停止：关闭 enabled；停止并重置区块游标。重启：重新拉起 Worker 并从最新区块扫块（enabled=true）。
+        </p>
       </section>
 
       <section className="card">

@@ -250,13 +250,25 @@ export async function runWorker(signal: AbortSignal) {
   pushLog("info", "Robinhood 发币狙击 Worker 运行中（市值 summary · 买入 quote_v2）");
 
   let lastBlock: bigint | null = null;
+  let resetBlockCursor = false;
 
-  while (!signal.aborted) {
-    resetClients();
+  const onReset = () => {
+    resetBlockCursor = true;
+  };
+  resetBlockCursorListeners.add(onReset);
+  try {
+    while (!signal.aborted) {
+      if (resetBlockCursor) {
+        lastBlock = null;
+        resetBlockCursor = false;
+        patchState({ lastBlock: null, lastMessage: "区块游标已重置" });
+      }
+
+      resetClients();
     const settings = loadSettings();
     const err = validateSettingsForRun(settings);
     if (!settings.enabled) {
-      patchState({ phase: "idle", lastMessage: "监控未启用，请在网页保存并开启" });
+      patchState({ phase: "idle", lastMessage: "监控未启用（暂停/停止中，可点「重启监控」恢复）" });
       await sleep(3000, signal);
       continue;
     }
@@ -310,5 +322,14 @@ export async function runWorker(signal: AbortSignal) {
     }
 
     await sleep(loadSettings().pollIntervalSec * 1000, signal);
+    }
+  } finally {
+    resetBlockCursorListeners.delete(onReset);
   }
+}
+
+const resetBlockCursorListeners = new Set<() => void>();
+
+export function requestBlockCursorReset() {
+  for (const fn of resetBlockCursorListeners) fn();
 }

@@ -211,3 +211,34 @@ button.primary:disabled {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+.worker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.worker-actions button {
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #2a3140;
+  background: #243044;
+  color: #e8e6e3;
+  cursor: pointer;
+}
+
+.worker-actions button.primary {
+  background: #2d5a9e;
+  border-color: #3d6bb5;
+}
+
+.worker-actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.worker-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+}

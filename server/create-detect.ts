@@ -1,7 +1,15 @@
 import { decodeAbiParameters, getAddress, type Address, type Hash, type TransactionReceipt } from "viem";
-import { ROBIN_CONTRACTS, POOL_INITIALIZE_TOPIC, TOKEN_CREATED_TOPIC } from "./chain.js";
+import {
+  ROBIN_CONTRACTS,
+  AIRLOCK_CREATE_TOPIC,
+  POOL_INITIALIZE_TOPIC,
+  TOKEN_CREATED_TOPIC,
+} from "./chain.js";
 
-const ENTRY_SET = new Set(ROBIN_CONTRACTS.launchEntry.map((a) => a.toLowerCase()));
+const ENTRY_SET = new Set(
+  [...ROBIN_CONTRACTS.launchEntry, ROBIN_CONTRACTS.dopplerAirlock].map((a) => a.toLowerCase()),
+);
+const AIRLOCK_LOWER = ROBIN_CONTRACTS.dopplerAirlock.toLowerCase();
 
 export type PoolKey = {
   currency0: Address;
@@ -51,6 +59,15 @@ export function parseLaunchFromReceipt(
         const [addr] = decodeAbiParameters([{ type: "address" }], log.data);
         token = getAddress(addr);
       }
+    }
+
+    if (
+      t0 === AIRLOCK_CREATE_TOPIC.toLowerCase() &&
+      log.address.toLowerCase() === AIRLOCK_LOWER &&
+      log.data.length >= 66
+    ) {
+      const [asset] = decodeAbiParameters([{ type: "address" }], log.data);
+      token = getAddress(asset);
     }
 
     if (
