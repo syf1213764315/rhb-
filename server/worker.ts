@@ -7,7 +7,7 @@ import { quoteAndExecuteAgntBuy } from "./agntSwap.js";
 import { readTokenMeta } from "./tokenMeta.js";
 import { patchState, pushHit, pushLog } from "./state.js";
 import { privateKeyConfigured } from "./secrets.js";
-import { matchesAgntNameFilter } from "./tokenContext.js";
+import { matchesTokenNameFilter } from "./tokenContext.js";
 import { checkHolderFilter } from "./holderFilter.js";
 
 function sleep(ms: number, signal: AbortSignal) {
@@ -46,6 +46,11 @@ async function waitMarketCapAndBuy(
     return;
   }
 
+  pushLog(
+    "info",
+    `进入市值/持有人跟踪 · ${meta.symbol} · 阈值 $${settings.minMarketCapUsd} · 最长 10 分钟`,
+  );
+
   const deadline = Date.now() + 10 * 60_000;
   let displaySymbol = meta.symbol;
   let displayName = meta.name;
@@ -61,12 +66,21 @@ async function waitMarketCapAndBuy(
       displaySymbol = summary.symbol;
       displayName = summary.name;
 
-      if (!matchesAgntNameFilter(summary, fresh.nameFilter)) {
-        pushLog("info", `跳过 ${summary.symbol} · 名称不匹配筛选「${fresh.nameFilter}」`);
+      if (
+        !matchesTokenNameFilter(fresh.nameFilter, [
+          { name: meta.name, symbol: meta.symbol },
+          { name: summary.name, symbol: summary.symbol },
+        ])
+      ) {
+        pushLog(
+          "info",
+          `跳过 ${summary.symbol} · 名称不匹配筛选「${fresh.nameFilter}」（不区分大小写）`,
+        );
         return;
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      pushLog("info", `${displaySymbol} · 等待 agnt 收录 · ${msg.slice(0, 80)}`);
       patchState({
         phase: "watching_mcap",
         lastMessage: `${displaySymbol} · 等待 agnt 收录… (${msg.slice(0, 60)})`,
@@ -79,6 +93,10 @@ async function waitMarketCapAndBuy(
       phase: "watching_mcap",
       lastMessage: `${displaySymbol} 市值 $${mcap.toFixed(0)} (agnt) / 阈值 $${fresh.minMarketCapUsd}`,
     });
+    pushLog(
+      "info",
+      `市值轮询 · ${displaySymbol} $${mcap.toFixed(0)} / 阈值 $${fresh.minMarketCapUsd}`,
+    );
 
     const mcapOk = mcap >= fresh.minMarketCapUsd;
     let holderOk = true;
@@ -103,6 +121,13 @@ async function waitMarketCapAndBuy(
       continue;
     }
 
+    if (fresh.holderFilterEnabled) {
+      pushLog(
+        "info",
+        `持有人检查 · ${displaySymbol} · ${holderOk ? "通过" : "未达标"} · ${holderReason || "—"}`,
+      );
+    }
+
     if (!holderOk) {
       patchState({
         phase: "watching_holders",
@@ -113,6 +138,10 @@ async function waitMarketCapAndBuy(
     }
 
     if (mcapOk && holderOk) {
+      pushLog(
+        "ok",
+        `市值+持有人达标 · 开始买入 ${displaySymbol} · ${fresh.buyEthAmount} ETH`,
+      );
       patchState({
         phase: "buying",
         lastMessage: `市值+持有人达标，买入 ${displaySymbol} · ${fresh.buyEthAmount} ETH${holderReason ? ` · ${holderReason}` : ""}`,
@@ -120,6 +149,7 @@ async function waitMarketCapAndBuy(
 
       let lastErr = "";
       for (let attempt = 1; attempt <= fresh.buyMaxRetries; attempt++) {
+        pushLog("info", `买入尝试 ${attempt}/${fresh.buyMaxRetries} · ${displaySymbol}`);
         try {
           const buy = await quoteAndExecuteAgntBuy({
             buyToken: launch.token,
@@ -196,25 +226,41 @@ async function handleLaunchTx(
       return;
     }
 
+    pushLog(
+      "info",
+      `发币候选 · tx ${txHash.slice(0, 12)}… · creator ${creator.slice(0, 10)}… · 区块 ${blockNumber}`,
+    );
+
     const settings = loadSettings();
     const meta = await readTokenMeta(launch.token);
+    let summary: Awaited<ReturnType<typeof fetchTokenSummary>> | null = null;
+    try {
+      summary = await fetchTokenSummary(launch.token);
+    } catch {
+      /* agnt 未收录时用链上 name/symbol */
+    }
 
     if (settings.nameFilter.trim()) {
-      try {
-        const summary = await fetchTokenSummary(launch.token);
-        if (!matchesAgntNameFilter(summary, settings.nameFilter)) {
-          pushLog("info", `跳过 ${summary.symbol} · 名称不匹配筛选`);
-          processedTx.add(txHash);
-          return;
-        }
-      } catch {
-        const localName = `${meta.name} ${meta.symbol}`;
-        if (!localName.toLowerCase().includes(settings.nameFilter.trim().toLowerCase())) {
-          pushLog("info", `跳过 ${meta.symbol} · agnt 未收录，链上名称不匹配`);
-          processedTx.add(txHash);
-          return;
-        }
+      const ok = matchesTokenNameFilter(settings.nameFilter, [
+        { name: meta.name, symbol: meta.symbol },
+        summary,
+      ]);
+      if (!ok) {
+        pushLog(
+          "info",
+          `跳过 ${meta.symbol}（链上 ${meta.name}/${meta.symbol}${
+            summary ? ` · agnt ${summary.name}/${summary.symbol}` : ""
+          }）· 不匹配筛选「${settings.nameFilter}」（不区分大小写）`,
+        );
+        processedTx.add(txHash);
+        return;
       }
+      pushLog(
+        "info",
+        `名称筛选通过 · 「${settings.nameFilter}」↔ ${meta.symbol}/${meta.name}${
+          summary ? ` · agnt ${summary.symbol}` : ""
+        }`,
+      );
     }
 
     pushLog(
@@ -237,12 +283,19 @@ function scanBlockTransactions(
   blockNumber: bigint,
   watchSet: Set<string>,
   signal: AbortSignal,
-) {
+): number {
+  let candidates = 0;
   for (const tx of txs) {
     if (!watchSet.has(tx.from.toLowerCase())) continue;
     if (!isLaunchTarget(tx.to)) continue;
+    candidates++;
+    pushLog(
+      "info",
+      `区块 ${blockNumber} · 监控地址发币 tx ${tx.hash.slice(0, 12)}… → ${tx.to?.slice(0, 10)}…`,
+    );
     void handleLaunchTx(tx.hash, tx.from, blockNumber, signal);
   }
+  return candidates;
 }
 
 export async function runWorker(signal: AbortSignal) {
@@ -269,6 +322,7 @@ export async function runWorker(signal: AbortSignal) {
     const err = validateSettingsForRun(settings);
     if (!settings.enabled) {
       patchState({ phase: "idle", lastMessage: "监控未启用（暂停/停止中，可点「重启监控」恢复）" });
+      pushLog("info", "轮询 · 监控未启用，等待恢复…");
       await sleep(3000, signal);
       continue;
     }
@@ -292,8 +346,15 @@ export async function runWorker(signal: AbortSignal) {
         lastBlock = latest;
         pushLog("info", `从区块 ${latest} 开始监控 · HTTP RPC ${settings.rpcHttpUrl}`);
         patchState({ lastBlock: Number(latest), lastMessage: `监控 ${watchSet.size} 个地址` });
+        pushLog(
+          "info",
+          `轮询 · 链头 ${latest} · 游标 ${latest} · 已对齐链头（下一周期扫描新区块）`,
+        );
       } else if (latest > lastBlock) {
         const from = lastBlock + 1n;
+        const blockCount = Number(latest - from + 1n);
+        pushLog("info", `轮询 · 链头 ${latest} · 扫描区块 ${from}–${latest}（${blockCount} 块）`);
+        let launchCandidates = 0;
         for (let b = from; b <= latest; b++) {
           const block = await client.getBlock({ blockNumber: b, includeTransactions: true });
           const txs = block.transactions.filter((t) => typeof t !== "string") as {
@@ -301,12 +362,17 @@ export async function runWorker(signal: AbortSignal) {
             to: Address | null;
             hash: Hash;
           }[];
-          scanBlockTransactions(txs, b, watchSet, signal);
+          launchCandidates += scanBlockTransactions(txs, b, watchSet, signal);
         }
+        pushLog(
+          "info",
+          `扫描完成 · 游标 → ${latest} · 发币候选 ${launchCandidates} 笔`,
+        );
         lastBlock = latest;
         patchState({ lastBlock: Number(latest), phase: "polling" });
       } else {
-        patchState({ phase: "polling", lastMessage: "等待新区块…" });
+        pushLog("info", `轮询 · 链头 ${latest} · 游标 ${lastBlock} · 无新区块`);
+        patchState({ phase: "polling", lastMessage: `等待新区块… · 链头 ${latest}` });
       }
     } catch (e) {
       if (signal.aborted) throw e;

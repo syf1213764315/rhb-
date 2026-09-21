@@ -103,9 +103,23 @@ export async function getMarketCapUsd(token: Address): Promise<number> {
 }
 
 export function matchesAgntNameFilter(summary: AgntTokenSummary, filter: string): boolean {
+  return matchesTokenNameFilter(filter, [{ name: summary.name, symbol: summary.symbol }]);
+}
+
+/** 名称/符号包含筛选词即通过（trim + 不区分大小写）；链上 meta 与 agnt 任一命中即可 */
+export function matchesTokenNameFilter(
+  filter: string,
+  sources: Array<{ name?: string; symbol?: string } | null | undefined>,
+): boolean {
   const f = filter.trim().toLowerCase();
   if (!f) return true;
-  return summary.name.toLowerCase().includes(f) || summary.symbol.toLowerCase().includes(f);
+  for (const src of sources) {
+    if (!src) continue;
+    const name = (src.name ?? "").toLowerCase();
+    const symbol = (src.symbol ?? "").toLowerCase();
+    if (name.includes(f) || symbol.includes(f)) return true;
+  }
+  return false;
 }
 
 export function ethUsdFromSettings() {

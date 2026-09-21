@@ -344,7 +344,7 @@ export function App() {
           />
         </label>
         <label>
-          代币名称筛选（包含匹配，留空=全部）
+          代币名称筛选（包含匹配、不区分大小写，留空=全部）
           <input value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="例如 PEPE" />
         </label>
         <div className="grid2">
@@ -514,10 +514,20 @@ export function App() {
 
       <section className="card">
         <h2>日志</h2>
+        <p className="muted small">最新 {status?.logs?.length ?? 0} 条（含轮询、发币、市值、持有人、买入）</p>
         <pre className="logs">
           {(status?.logs ?? [])
-            .slice(0, 40)
-            .map((l) => `[${l.time.slice(11, 19)}] ${l.message}`)
+            .map((l) => {
+              const tag =
+                l.level === "ok"
+                  ? "OK"
+                  : l.level === "warn"
+                    ? "WARN"
+                    : l.level === "err"
+                      ? "ERR"
+                      : "INFO";
+              return `[${l.time.slice(11, 19)}][${tag}] ${l.message}`;
+            })
             .join("\n")}
         </pre>
       </section>

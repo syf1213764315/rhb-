@@ -24,7 +24,7 @@ export type WorkerState = {
   logs: LogLine[];
 };
 
-const MAX_LOGS = 200;
+const MAX_LOGS = 500;
 const MAX_HITS = 40;
 
 const state: WorkerState = {
