@@ -1,6 +1,7 @@
 import { getAddress, type Address } from "viem";
 import { fetchTokenHolders, type AgntHoldersResponse } from "./agntHolders.js";
 import { getWatchBalancesPct } from "./chainHolders.js";
+import { compareOpLabel, compareOpSymbol, matchesCompare } from "./compareOp.js";
 import type { SnipeSettings } from "./settings.js";
 
 export type HolderCheckResult = {
@@ -64,10 +65,14 @@ export async function checkHolderFilter(
   const mode = settings.holderMode ?? "any";
 
   if (maxTop10 != null && maxTop10 > 0 && data.distribution?.top10 != null) {
-    if (data.distribution.top10 > maxTop10) {
+    const top10 = data.distribution.top10;
+    const top10Ok = matchesCompare(top10, maxTop10, settings.holderMaxTop10CompareOp, "lte");
+    if (!top10Ok) {
+      const sym = compareOpSymbol(settings.holderMaxTop10CompareOp, "lte");
+      const lab = compareOpLabel(settings.holderMaxTop10CompareOp, "lte");
       return {
         ok: false,
-        reason: `Top10 持仓 ${data.distribution.top10}% > 上限 ${maxTop10}%（链上 RPC）`,
+        reason: `Top10 持仓 ${top10}% 未满足 ${lab} ${maxTop10}%（需实际${sym}${maxTop10}%，链上 RPC）`,
         data,
       };
     }
@@ -91,34 +96,36 @@ export async function checkHolderFilter(
     }
   }
 
+  const pctOk = (pct: number) => matchesCompare(pct, minPct, settings.holderMinPctCompareOp, "gte");
+  const pctClause = `${compareOpLabel(settings.holderMinPctCompareOp, "gte")}${minPct}%`;
+
   if (mode === "all") {
-    const fail = watched.filter((w) => (w.pct ?? 0) < minPct);
+    const fail = watched.filter((w) => !pctOk(w.pct ?? 0));
     if (fail.length) {
       const detail = fail
         .map((w) => `${w.address.slice(0, 8)}…=${w.pct ?? 0}%`)
         .join(", ");
       return {
         ok: false,
-        reason: `需全部监控地址持仓 ≥${minPct}% · 未达标: ${detail}`,
+        reason: `需全部监控地址持仓 ${pctClause} · 未达标: ${detail}`,
         data,
         watched,
       };
     }
     return {
       ok: true,
-      reason: `全部监控地址持仓 ≥${minPct}%`,
+      reason: `全部监控地址持仓 ${pctClause}`,
       data,
       watched,
     };
   }
 
-  // any：至少一个监控地址持仓 >= minPct
-  const hit = watched.find((w) => (w.pct ?? 0) >= minPct);
+  const hit = watched.find((w) => pctOk(w.pct ?? 0));
   if (!hit) {
     const detail = watched.map((w) => `${w.address.slice(0, 8)}…=${w.pct ?? "—"}%`).join(", ");
     return {
       ok: false,
-      reason: `需任一监控地址持仓 ≥${minPct}% · 当前: ${detail}`,
+      reason: `需任一监控地址持仓 ${pctClause} · 当前: ${detail}`,
       data,
       watched,
     };
@@ -126,7 +133,7 @@ export async function checkHolderFilter(
 
   return {
     ok: true,
-    reason: `${hit.address.slice(0, 10)}… 持仓 ${hit.pct}% ≥ ${minPct}%`,
+    reason: `${hit.address.slice(0, 10)}… 持仓 ${hit.pct}% 满足 ${pctClause}`,
     data,
     watched,
   };

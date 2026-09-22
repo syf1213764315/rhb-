@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { getAddress } from "viem";
 import { DATA_DIR, SETTINGS_PATH } from "./paths.js";
+import { normalizeCompareOp, type CompareOp } from "./compareOp.js";
+
+export type { CompareOp };
 
 export type SnipeSettings = {
   /** 是否启用后台监控（关闭网页后仍由 Node 进程执行） */
@@ -9,8 +12,10 @@ export type SnipeSettings = {
   watchAddresses: string[];
   /** 代币名称/符号筛选（包含匹配，不区分大小写；留空表示不过滤） */
   nameFilter: string;
-  /** 市值阈值（USD），大于等于时买入 */
+  /** 市值阈值（USD） */
   minMarketCapUsd: number;
+  /** 市值与阈值比较：gt/lt/eq；未设时等价于 ≥ */
+  marketCapCompareOp?: CompareOp;
   /** ETH/USD 估价，用于把池子价格换算成美元市值 */
   ethUsdPrice: number;
   /** 单笔买入 ETH 数量 */
@@ -28,10 +33,12 @@ export type SnipeSettings = {
   holderWatchAddresses: string[];
   /** any=任一地址达标；all=全部地址都要达标 */
   holderMode: "any" | "all";
-  /** 监控地址最低持仓比例 % */
+  /** 监控地址持仓比例 % 与阈值比较；未设时等价于 ≥ */
   holderMinPct: number;
-  /** 可选：Top10 集中度上限 %，0 表示不限制 */
+  holderMinPctCompareOp?: CompareOp;
+  /** 可选：Top10 集中度 % 与阈值比较，0 表示不限制；未设时等价于 ≤ */
   holderMaxTop10Pct: number;
+  holderMaxTop10CompareOp?: CompareOp;
   /** 监控地址必须出现在 holders 列表中 */
   holderRequireListed: boolean;
 };
@@ -108,6 +115,7 @@ function normalizeSettings(s: SnipeSettings): SnipeSettings {
     watchAddresses: parseAddressLines(s.watchAddresses),
     nameFilter: (s.nameFilter ?? "").trim(),
     minMarketCapUsd: Math.max(0, Number(s.minMarketCapUsd) || 0),
+    marketCapCompareOp: normalizeCompareOp(s.marketCapCompareOp),
     ethUsdPrice: Math.max(1, Number(s.ethUsdPrice) || DEFAULT.ethUsdPrice),
     buyEthAmount: String(s.buyEthAmount ?? DEFAULT.buyEthAmount).trim() || DEFAULT.buyEthAmount,
     slippageBps: Math.min(5000, Math.max(0, Math.floor(Number(s.slippageBps) || 500))),
@@ -120,7 +128,9 @@ function normalizeSettings(s: SnipeSettings): SnipeSettings {
     holderWatchAddresses: parseAddressLines(s.holderWatchAddresses),
     holderMode: mode,
     holderMinPct: Math.min(100, Math.max(0, Number(s.holderMinPct) || 0)),
+    holderMinPctCompareOp: normalizeCompareOp(s.holderMinPctCompareOp),
     holderMaxTop10Pct: Math.min(100, Math.max(0, Number(s.holderMaxTop10Pct) || 0)),
+    holderMaxTop10CompareOp: normalizeCompareOp(s.holderMaxTop10CompareOp),
     holderRequireListed: !!s.holderRequireListed,
   };
 }

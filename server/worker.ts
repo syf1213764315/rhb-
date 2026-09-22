@@ -9,6 +9,7 @@ import { patchState, pushHit, pushLog } from "./state.js";
 import { privateKeyConfigured } from "./secrets.js";
 import { matchesTokenNameFilter } from "./tokenContext.js";
 import { checkHolderFilter } from "./holderFilter.js";
+import { compareOpLabel, matchesCompare } from "./compareOp.js";
 import { scanLaunchesInBlockRange } from "./scanLaunches.js";
 
 function sleep(ms: number, signal: AbortSignal) {
@@ -49,7 +50,7 @@ async function waitMarketCapAndBuy(
 
   pushLog(
     "info",
-    `进入市值/持有人跟踪 · ${meta.symbol} · 阈值 $${settings.minMarketCapUsd} · 最长 10 分钟`,
+    `进入市值/持有人跟踪 · ${meta.symbol} · 市值${compareOpLabel(settings.marketCapCompareOp, "gte")} $${settings.minMarketCapUsd} · 最长 10 分钟`,
   );
 
   const deadline = Date.now() + 10 * 60_000;
@@ -90,16 +91,14 @@ async function waitMarketCapAndBuy(
       continue;
     }
 
+    const mcapClause = `${compareOpLabel(fresh.marketCapCompareOp, "gte")} $${fresh.minMarketCapUsd}`;
     patchState({
       phase: "watching_mcap",
-      lastMessage: `${displaySymbol} 市值 $${mcap.toFixed(0)} (agnt) / 阈值 $${fresh.minMarketCapUsd}`,
+      lastMessage: `${displaySymbol} 市值 $${mcap.toFixed(0)} (agnt) / 条件 ${mcapClause}`,
     });
-    pushLog(
-      "info",
-      `市值轮询 · ${displaySymbol} $${mcap.toFixed(0)} / 阈值 $${fresh.minMarketCapUsd}`,
-    );
+    pushLog("info", `市值轮询 · ${displaySymbol} $${mcap.toFixed(0)} / 需${mcapClause}`);
 
-    const mcapOk = mcap >= fresh.minMarketCapUsd;
+    const mcapOk = matchesCompare(mcap, fresh.minMarketCapUsd, fresh.marketCapCompareOp, "gte");
     let holderOk = true;
     let holderReason = "";
     if (fresh.holderFilterEnabled) {
@@ -116,7 +115,7 @@ async function waitMarketCapAndBuy(
     if (!mcapOk) {
       patchState({
         phase: "watching_mcap",
-        lastMessage: `${displaySymbol} 市值 $${mcap.toFixed(0)} / 阈值 $${fresh.minMarketCapUsd}`,
+        lastMessage: `${displaySymbol} 市值 $${mcap.toFixed(0)} / 需${compareOpLabel(fresh.marketCapCompareOp, "gte")} $${fresh.minMarketCapUsd}`,
       });
       await sleep(fresh.pollIntervalSec * 1000, signal);
       continue;

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchApiJson } from "./api";
 
+type CompareOp = "gt" | "lt" | "eq";
+
 type SnipeSettings = {
   enabled: boolean;
   watchAddresses: string[];
   nameFilter: string;
   minMarketCapUsd: number;
+  marketCapCompareOp?: CompareOp;
   ethUsdPrice: number;
   buyEthAmount: string;
   slippageBps: number;
@@ -18,7 +21,9 @@ type SnipeSettings = {
   holderWatchAddresses: string[];
   holderMode: "any" | "all";
   holderMinPct: number;
+  holderMinPctCompareOp?: CompareOp;
   holderMaxTop10Pct: number;
+  holderMaxTop10CompareOp?: CompareOp;
   holderRequireListed: boolean;
 };
 
@@ -60,6 +65,7 @@ export function App() {
   const [watchText, setWatchText] = useState("");
   const [nameFilter, setNameFilter] = useState("");
   const [minMcap, setMinMcap] = useState("10000");
+  const [marketCapCompareOp, setMarketCapCompareOp] = useState<CompareOp>("gt");
   const [ethUsd, setEthUsd] = useState("3000");
   const [buyEth, setBuyEth] = useState("0.01");
   const [slippagePct, setSlippagePct] = useState("5");
@@ -72,7 +78,9 @@ export function App() {
   const [holderWatchText, setHolderWatchText] = useState("");
   const [holderMode, setHolderMode] = useState<"any" | "all">("any");
   const [holderMinPct, setHolderMinPct] = useState("0");
+  const [holderMinPctCompareOp, setHolderMinPctCompareOp] = useState<CompareOp>("gt");
   const [holderMaxTop10, setHolderMaxTop10] = useState("0");
+  const [holderMaxTop10CompareOp, setHolderMaxTop10CompareOp] = useState<CompareOp>("lt");
   const [holderRequireListed, setHolderRequireListed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -92,6 +100,7 @@ export function App() {
     setWatchText(s.watchAddresses.join("\n"));
     setNameFilter(s.nameFilter);
     setMinMcap(String(s.minMarketCapUsd));
+    setMarketCapCompareOp(s.marketCapCompareOp ?? "gt");
     setEthUsd(String(s.ethUsdPrice));
     setBuyEth(s.buyEthAmount);
     setSlippagePct(String(s.slippageBps / 100));
@@ -104,7 +113,9 @@ export function App() {
     setHolderWatchText((s.holderWatchAddresses ?? []).join("\n"));
     setHolderMode(s.holderMode === "all" ? "all" : "any");
     setHolderMinPct(String(s.holderMinPct ?? 0));
+    setHolderMinPctCompareOp(s.holderMinPctCompareOp ?? "gt");
     setHolderMaxTop10(String(s.holderMaxTop10Pct ?? 0));
+    setHolderMaxTop10CompareOp(s.holderMaxTop10CompareOp ?? "lt");
     setHolderRequireListed(!!s.holderRequireListed);
   }, []);
 
@@ -246,6 +257,7 @@ export function App() {
           watchAddresses: addresses,
           nameFilter,
           minMarketCapUsd: Number(minMcap),
+          marketCapCompareOp,
           ethUsdPrice: Number(ethUsd),
           buyEthAmount: buyEth.trim(),
           slippageBps: Math.round(Number(slippagePct) * 100),
@@ -257,7 +269,9 @@ export function App() {
           holderWatchAddresses: holderAddresses,
           holderMode,
           holderMinPct: Number(holderMinPct),
+          holderMinPctCompareOp,
           holderMaxTop10Pct: Number(holderMaxTop10),
+          holderMaxTop10CompareOp,
           holderRequireListed,
         }),
       });
@@ -349,8 +363,19 @@ export function App() {
         </label>
         <div className="grid2">
           <label>
-            最小市值 USD
+            市值 USD
             <input value={minMcap} onChange={(e) => setMinMcap(e.target.value)} />
+          </label>
+          <label>
+            市值条件
+            <select
+              value={marketCapCompareOp}
+              onChange={(e) => setMarketCapCompareOp(e.target.value as CompareOp)}
+            >
+              <option value="gt">大于</option>
+              <option value="lt">小于</option>
+              <option value="eq">等于</option>
+            </select>
           </label>
           <label>
             ETH/USD 估价
@@ -408,12 +433,34 @@ export function App() {
             </select>
           </label>
           <label>
-            最低持仓 %
+            持仓 % 阈值
             <input value={holderMinPct} onChange={(e) => setHolderMinPct(e.target.value)} />
           </label>
           <label>
-            Top10 上限 %（0=不限制）
+            持仓条件
+            <select
+              value={holderMinPctCompareOp}
+              onChange={(e) => setHolderMinPctCompareOp(e.target.value as CompareOp)}
+            >
+              <option value="gt">大于</option>
+              <option value="lt">小于</option>
+              <option value="eq">等于</option>
+            </select>
+          </label>
+          <label>
+            Top10 阈值 %（0=不限制）
             <input value={holderMaxTop10} onChange={(e) => setHolderMaxTop10(e.target.value)} />
+          </label>
+          <label>
+            Top10 条件
+            <select
+              value={holderMaxTop10CompareOp}
+              onChange={(e) => setHolderMaxTop10CompareOp(e.target.value as CompareOp)}
+            >
+              <option value="gt">大于</option>
+              <option value="lt">小于</option>
+              <option value="eq">等于</option>
+            </select>
           </label>
         </div>
         <label className="check">
